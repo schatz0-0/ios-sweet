@@ -1,0 +1,104 @@
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -536,6 +536,22 @@
+ 	PE_consistent_debug_inherit();
+ 	sweet_early_mark(26, "PE_consistent_debug_inherit done");
+ 
++#if defined(SWEET)
++	{
++		extern vm_offset_t static_memory_end;
++		extern vm_offset_t virtual_space_start;
++		extern vm_offset_t virtual_space_end;
++		sweet_early_log("SWEET KV: topOfKernelData=%p static_end=%p",
++		    (void *)(uintptr_t)args->topOfKernelData,
++		    (void *)(uintptr_t)static_memory_end);
++		sweet_early_log("SWEET KV: vsp=%p vend=%p pmap=%p..%p",
++		    (void *)(uintptr_t)virtual_space_start,
++		    (void *)(uintptr_t)virtual_space_end,
++		    (void *)(uintptr_t)kernel_pmap->min,
++		    (void *)(uintptr_t)kernel_pmap->max);
++	}
++#endif
++
+ 	/* Setup debugging output. */
+ 	sweet_early_mark(16, "calling serial_init");
+ 	const unsigned int serial_exists = serial_init();
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -134,6 +134,28 @@
+ 	sweet_early_mark(9, "kernel framebuffer VA live");
+ }
+ 
++/* Write-combine alias installed by arm_vm_init() for the panel framebuffer. */
++uintptr_t
++sweet_early_fb_base(void)
++{
++	return (uintptr_t)early_fb;
++}
++
++void
++sweet_early_log(const char *fmt, ...)
++{
++	va_list ap;
++
++	if (early_disabled || early_panicking) {
++		return;
++	}
++	va_start(ap, fmt);
++	_doprnt(fmt, &ap, sweet_early_putc, 16);
++	va_end(ap);
++	sweet_early_putc('\n');
++	__asm__ volatile("dsb sy" ::: "memory");
++}
++
+ void
+ sweet_early_disable(void)
+ {
+diff --git a/osfmk/arm64/sweet_early.h b/osfmk/arm64/sweet_early.h
+--- a/osfmk/arm64/sweet_early.h
++++ b/osfmk/arm64/sweet_early.h
+@@ -11,12 +11,22 @@
+ void sweet_early_putc(char c);
+ void sweet_early_panic(const char *fmt, va_list *args);
+ void sweet_early_relocate(uint64_t base);
++void sweet_early_log(const char *fmt, ...);
++uintptr_t sweet_early_fb_base(void);
+ void sweet_early_disable(void);
+ #else
+ static inline void sweet_early_mark(unsigned int stage, const char *label)
+ {
+ 	(void)stage;
+ 	(void)label;
++}
++static inline void sweet_early_log(const char *fmt, ...)
++{
++	(void)fmt;
++}
++static inline uintptr_t sweet_early_fb_base(void)
++{
++	return 0;
+ }
+ static inline void sweet_early_disable(void) {}
+ #endif
+diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
+--- a/pexpert/arm/pe_serial.c
++++ b/pexpert/arm/pe_serial.c
+@@ -835,7 +835,15 @@
+ 		return;
+ 	}
+ 	sweet_early_mark(17, "fbcon config read; mapping");
+-	fbcon_base = (volatile uint32_t *)ml_io_map_wcomb(reg[0], reg[1]);
++	sweet_early_log("SWEET FBCON: phys=%p size=%p",
++	    (void *)(uintptr_t)reg[0], (void *)(uintptr_t)reg[1]);
++	/*
++	 * ml_io_map_wcomb() hands out virtual_space_start and would panic in
++	 * pmap_map_bd_with_options() because the kernel pmap has no leaf tables
++	 * there yet. arm_vm_init() already installed a write-combine block
++	 * mapping of this framebuffer, so reuse it.
++	 */
++	fbcon_base = (volatile uint32_t *)sweet_early_fb_base();
+ 	sweet_early_mark(18, "fbcon mapping returned");
+ 	if (fbcon_base != NULL) {
+ 		register_serial_functions(&sweet_fbcon_serial_functions);
