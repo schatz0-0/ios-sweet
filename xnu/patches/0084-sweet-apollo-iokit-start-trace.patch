@@ -1,0 +1,47 @@
+diff --git a/iokit/Kernel/IOService.cpp b/iokit/Kernel/IOService.cpp
+--- a/iokit/Kernel/IOService.cpp
++++ b/iokit/Kernel/IOService.cpp
+@@ -751,6 +751,9 @@
+ bool
+ IOService::start( IOService * provider )
+ {
++#if defined(SWEET)
++	IOLog("IOK: start %s\n", getMetaClass()->getClassName());
++#endif
+ 	return true;
+ }
+ 
+diff --git a/iokit/Kernel/IOStartIOKit.cpp b/iokit/Kernel/IOStartIOKit.cpp
+--- a/iokit/Kernel/IOStartIOKit.cpp
++++ b/iokit/Kernel/IOStartIOKit.cpp
+@@ -182,10 +182,16 @@
+ {
+ 	SOCD_TRACE_XNU(START_IOKIT);
+ 	assert(gRootNub != NULL);
++#if defined(SWEET)
++	IOLog("SWEET: IOService matching begin\n");
++#endif
+ 	bool ok = gRootNub->startIOServiceMatching();
+ 	if (__improbable(!ok)) {
+ 		panic("Failed to start IOService matching");
+ 	}
++#if defined(SWEET)
++	IOLog("SWEET: IOService matching returned\n");
++#endif
+ 
+ #if !NO_KEXTD
+ 	if (OSKext::iokitDaemonAvailable()) {
+diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -496,6 +496,10 @@
+ #define bsd_init_kprintf(x, ...) kprintf("bsd_init: " x, ## __VA_ARGS__)
+ #else
+ #define bsd_init_kprintf(x, ...)
++#endif
++
++#if defined(SWEET)
++	printf("SWEET: bsd_init entry\n");
+ #endif
+ 
+ 	throttle_init();
