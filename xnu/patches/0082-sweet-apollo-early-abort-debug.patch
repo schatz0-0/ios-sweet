@@ -1,0 +1,75 @@
+diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -1510,6 +1510,17 @@
+ handle_kernel_abort(arm_saved_state_t *state, uint32_t esr, vm_offset_t fault_addr,
+     fault_status_t fault_code, vm_prot_t fault_type, expected_fault_handler_t expected_fault_handler)
+ {
++#if defined(SWEET)
++	/*
++	 * Before kmem_init() there is no kernel_map, so this routine cannot page
++	 * anything in; vm_fault(NULL, ...) would fault again and hide the first
++	 * fault behind an invalid-stack panic. Report the original abort instead.
++	 */
++	if (kernel_map == VM_MAP_NULL) {
++		panic_with_thread_kernel_state("SWEET EARLY ABORT: kernel_map not initialized", state);
++	}
++#endif
++
+ 	thread_t thread = current_thread();
+ 	bool recover = find_copyio_recovery_entry(state) != 0;
+ 
+diff --git a/osfmk/arm64/sweet_early.c b/osfmk/arm64/sweet_early.c
+--- a/osfmk/arm64/sweet_early.c
++++ b/osfmk/arm64/sweet_early.c
+@@ -89,7 +89,7 @@
+ void
+ sweet_early_mark(unsigned int stage, const char *label)
+ {
+-	if (early_disabled || stage > 20) {
++	if (early_disabled || stage > 30) {
+ 		return;
+ 	}
+ 	uint32_t color = 0xff00ff00u | ((stage & 7u) * 32u << 16);
+diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
+--- a/osfmk/arm64/arm_vm_init.c
++++ b/osfmk/arm64/arm_vm_init.c
+@@ -2366,6 +2366,7 @@
+ 	init_ptpages(cpu_tte, KERNEL_PMAP_HEAP_RANGE_START & ~ARM_TT_L1_OFFMASK, VM_MAX_KERNEL_ADDRESS, FALSE, ARM_DYNAMIC_TABLE_XN | ARM_TTE_TABLE_AP(ARM_TTE_TABLE_AP_USER_NA));
+ #endif
+ #endif // defined(KERNEL_INTEGRITY_KTRR) || defined(KERNEL_INTEGRITY_CTRR)
++	sweet_early_mark(21, "heap L1 page tables ready");
+ 
+ 	/*
+ 	 * Initialize l3 page table pages :
+@@ -2409,6 +2410,7 @@
+ 		va_l1 = va_l2_end;
+ 		cpu_l1_tte++;
+ 	}
++	sweet_early_mark(22, "CPU window L3 tables ready");
+ 
+ 
+ 	/*
+@@ -2422,7 +2424,9 @@
+ #endif
+ 	first_avail = avail_start;
+ 	patch_low_glo_static_region(args->topOfKernelData, avail_start - args->topOfKernelData);
++	sweet_early_mark(23, "low globals patched");
+ 	enable_preemption();
++	sweet_early_mark(24, "preemption enabled");
+ }
+ 
+ /*
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -533,7 +533,9 @@
+ 	sleep_token_buffer_init();
+ #endif
+ 
++	sweet_early_mark(25, "calling PE_consistent_debug_inherit");
+ 	PE_consistent_debug_inherit();
++	sweet_early_mark(26, "PE_consistent_debug_inherit done");
+ 
+ 	/* Setup debugging output. */
+ 	sweet_early_mark(16, "calling serial_init");
